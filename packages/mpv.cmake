@@ -3,7 +3,6 @@ ExternalProject_Add(mpv
         ffmpeg
         fribidi
         lcms2
-        libarchive
         libass
         libjpeg
         libpng
@@ -31,7 +30,7 @@ ExternalProject_Add(mpv
         -Dlibplacebo=disabled
         -Dvulkan=disabled
         -Djavascript=disabled
-        -Dlibarchive=enabled
+        -Dlibarchive=disabled
         -Dlcms2=enabled
         # OpenAL 只是另一种音频输出后端；启用它会拉 openal-soft -> libsdl2 -> vulkan，
         # 而 Vulkan-Loader 的补丁已经和上游对不上（git am 报 could not build fake ancestor）。
