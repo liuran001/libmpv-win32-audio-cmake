@@ -150,9 +150,9 @@ jobs:
       - name: Dump toolchain logs on failure
         if: failure()
         run: |
-          for f in $(find build_$BIT/toolchain -type f \( -name '*-out.log' -o -name '*-err.log' \) 2>/dev/null); do
+          for f in $(find build_$BIT/toolchain build_$BIT/packages -type f \( -name '*-out.log' -o -name '*-err.log' \) 2>/dev/null); do
             echo "===== $f ====="
-            tail -n 80 "$f" || true
+            tail -n 40 "$f" || true
           done
 
       - name: Build mpv (audio-lite, LGPL)
