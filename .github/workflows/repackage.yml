@@ -1,0 +1,83 @@
+name: repackage (media-kit layout)
+
+# 把 audio-lite 构建产物重新打包成 media_kit_libs_windows_audio 期望的
+# mpv-dev-<arch>-<date>-git-<sha>.7z 布局（顶层目录 + libmpv-2.dll +
+# libmpv.dll.a + include/mpv/*.h），并输出 md5 / sha256。
+# 这样消费方只需要改 CMakeLists 里的 LIBMPV / LIBMPV_URL / LIBMPV_MD5 三个值。
+#
+# 不使用任何 secrets。
+
+on:
+  workflow_dispatch:
+    inputs:
+      bit:
+        description: 'audio-lite bit to repackage (x86_64 or aarch64)'
+        required: true
+        default: 'x86_64'
+        type: string
+      source_run_id:
+        description: 'Run id of the audio-lite build that produced the artifact'
+        required: true
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  repack:
+    name: Repackage ${{ inputs.bit }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download audio-lite artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libmpv-audio-lite-windows-${{ inputs.bit }}
+          path: dl
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Unpack
+        run: |
+          set -eux
+          mkdir -p x
+          cd x
+          7z x -y ../dl/libmpv-audio-lite-windows-${{ inputs.bit }}.7z
+          find . -maxdepth 3 -type f | sort
+
+      - name: Repack into media-kit layout
+        run: |
+          set -eux
+          case "${{ inputs.bit }}" in
+            x86_64)  ARCH=x86_64 ;;
+            aarch64) ARCH=aarch64 ;;
+            *) echo "unsupported bit"; exit 1 ;;
+          esac
+          SHA=$(grep -m1 '^mpv:' dl/PROVENANCE.txt | awk '{print $2}' | cut -c1-7)
+          DATE=$(date -u +%Y%m%d)
+          DIR="mpv-dev-${ARCH}-${DATE}-git-${SHA}"
+          mkdir -p "$DIR/include"
+          cp x/out/libmpv/libmpv-2.dll "$DIR/"
+          cp x/out/libmpv/libmpv.dll.a "$DIR/" || true
+          if [ -d x/out/libmpv/include/mpv ]; then
+            cp -r x/out/libmpv/include/mpv "$DIR/include/"
+          fi
+          ls -lR "$DIR"
+          7z a -m0=lzma2 -mx=9 "${DIR}.7z" "$DIR" >/dev/null
+          md5sum "${DIR}.7z" | tee MD5SUMS.txt
+          sha256sum "${DIR}.7z" | tee SHA256SUMS.txt
+          ls -l "${DIR}.7z"
+          echo "ARCHIVE=${DIR}.7z" >> "$GITHUB_ENV"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-dev-windows-${{ inputs.bit }}
+          path: |
+            mpv-dev-*.7z
+            MD5SUMS.txt
+            SHA256SUMS.txt
+          retention-days: 30
