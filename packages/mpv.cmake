@@ -8,7 +8,6 @@ ExternalProject_Add(mpv
         libjpeg
         libpng
         uchardet
-        openal-soft
     GIT_REPOSITORY https://github.com/mpv-player/mpv.git
     SOURCE_DIR ${SOURCE_LOCATION}
     GIT_TAG v0.35.1
@@ -26,14 +25,17 @@ ExternalProject_Add(mpv
         -Dgpl=false
         -Db_ndebug=true
         -Dlibmpv=true
-        -Dpdf-build=enabled
+        # 音频版不需要手册 PDF，pdf-build 会拖进 rst2pdf 等文档工具链
+        -Dpdf-build=disabled
         -Dlua=disabled
         -Dlibplacebo=disabled
         -Dvulkan=disabled
         -Djavascript=disabled
         -Dlibarchive=enabled
         -Dlcms2=enabled
-        -Dopenal=enabled
+        # OpenAL 只是另一种音频输出后端；启用它会拉 openal-soft -> libsdl2 -> vulkan，
+        # 而 Vulkan-Loader 的补丁已经和上游对不上（git am 报 could not build fake ancestor）。
+        -Dopenal=disabled
         -Dgl=disabled
         -Dspirv-cross=disabled
         -Degl-angle=disabled
@@ -53,7 +55,7 @@ ExternalProject_Add_Step(mpv strip-binary
 ExternalProject_Add_Step(mpv copy-binary
     DEPENDEES strip-binary
     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.exe                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.exe
-    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.pdf                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/doc/manual.pdf
+    # pdf-build 已关闭，不再复制 mpv.pdf
     COMMAND ${CMAKE_COMMAND} -E copy ${MINGW_INSTALL_PREFIX}/etc/fonts/fonts.conf   ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv/fonts.conf
     ${mpv_copy_debug}
     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libmpv-2.dll          ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/libmpv-2.dll
