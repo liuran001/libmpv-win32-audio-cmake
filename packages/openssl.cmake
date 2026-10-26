@@ -7,6 +7,8 @@ ExternalProject_Add(openssl
     SOURCE_DIR ${SOURCE_LOCATION}
     GIT_CLONE_FLAGS "--sparse --filter=tree:0"
     GIT_CLONE_POST_COMMAND "sparse-checkout set --no-cone /* !test"
+    # 固定到 3.x：openssl.cmake 的 Configure 选项是按 3.x 写的，master 已经是 4.1
+    GIT_TAG openssl-3.6.5
     GIT_SUBMODULES ""
     UPDATE_COMMAND ""
     CONFIGURE_COMMAND ""
