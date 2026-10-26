@@ -175,6 +175,47 @@ ExternalProject_Add(ffmpeg
         --enable-filter=overlay
         --enable-filter=equalizer
 
+        # --- audio-lite additions (MusicDownloader W4) ---
+        # 增益/音量：volume、dynaudnorm、loudnorm、speechnorm
+        --enable-filter=volume
+        --enable-filter=dynaudnorm
+        --enable-filter=loudnorm
+        --enable-filter=speechnorm
+        # 淡入淡出/交叉淡化：afade、acrossfade
+        --enable-filter=afade
+        --enable-filter=acrossfade
+        # 限幅/动态：alimiter、acompressor、agate
+        --enable-filter=alimiter
+        --enable-filter=acompressor
+        --enable-filter=agate
+        # 重采样/格式：aresample、aformat、asetnsamples、anull、apad、atrim、atempo
+        --enable-filter=aresample
+        --enable-filter=aformat
+        --enable-filter=asetnsamples
+        --enable-filter=anull
+        --enable-filter=apad
+        --enable-filter=atrim
+        --enable-filter=atempo
+        # 均衡/滤波：bass、treble、highpass、lowpass、superequalizer、pan、channelmap
+        --enable-filter=bass
+        --enable-filter=treble
+        --enable-filter=highpass
+        --enable-filter=lowpass
+        --enable-filter=superequalizer
+        --enable-filter=pan
+        --enable-filter=channelmap
+        # 测量/分析：ebur128、astats、silencedetect、silenceremove
+        --enable-filter=ebur128
+        --enable-filter=astats
+        --enable-filter=silencedetect
+        --enable-filter=silenceremove
+        # 拼接/混音：amix、amerge、asplit、concat、join
+        --enable-filter=amix
+        --enable-filter=amerge
+        --enable-filter=asplit
+        --enable-filter=concat
+        --enable-filter=join
+
         --enable-protocol=async
         --enable-protocol=cache
         --enable-protocol=crypto
