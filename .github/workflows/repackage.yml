@@ -58,19 +58,21 @@ jobs:
           esac
           SHA=$(grep -m1 '^mpv:' dl/PROVENANCE.txt | awk '{print $2}' | cut -c1-7)
           DATE=$(date -u +%Y%m%d)
-          DIR="mpv-dev-${ARCH}-${DATE}-git-${SHA}"
-          mkdir -p "$DIR/include"
-          cp x/out/libmpv/libmpv-2.dll "$DIR/"
-          cp x/out/libmpv/libmpv.dll.a "$DIR/" || true
+          NAME="mpv-dev-${ARCH}-${DATE}-git-${SHA}"
+          # 上游 mpv-packaging 用 `7z a $dir.7z $dir/*`，归档根目录直接是
+          # libmpv-2.dll / libmpv.dll.a / include/mpv/*.h，没有外层目录。
+          mkdir -p stage
+          cp x/out/libmpv/libmpv-2.dll stage/
+          cp x/out/libmpv/libmpv.dll.a stage/ 2>/dev/null || true
           if [ -d x/out/libmpv/include/mpv ]; then
-            cp -r x/out/libmpv/include/mpv "$DIR/include/"
+            mkdir -p stage/include
+            cp -r x/out/libmpv/include/mpv stage/include/
           fi
-          ls -lR "$DIR"
-          7z a -m0=lzma2 -mx=9 "${DIR}.7z" "$DIR" >/dev/null
-          md5sum "${DIR}.7z" | tee MD5SUMS.txt
-          sha256sum "${DIR}.7z" | tee SHA256SUMS.txt
-          ls -l "${DIR}.7z"
-          echo "ARCHIVE=${DIR}.7z" >> "$GITHUB_ENV"
+          ls -lR stage
+          ( cd stage && 7z a -m0=lzma2 -mx=9 -ms=on "../${NAME}.7z" ./* >/dev/null )
+          md5sum "${NAME}.7z" | tee MD5SUMS.txt
+          sha256sum "${NAME}.7z" | tee SHA256SUMS.txt
+          ls -l "${NAME}.7z"
 
       - name: Upload
         uses: actions/upload-artifact@v4
