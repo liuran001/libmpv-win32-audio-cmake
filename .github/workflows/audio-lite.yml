@@ -1,0 +1,291 @@
+name: audio-lite libmpv (windows)
+
+# Builds an LGPL audio-lite libmpv-2.dll for Windows with the FFmpeg audio
+# filters that media-kit's prebuilt libraries lack (volume / alimiter / afade /
+# aresample / dynaudnorm / ...). See packages/ffmpeg.cmake for the exact list.
+#
+# No repository secrets are used anywhere in this workflow; every step is
+# reproducible from this public repository alone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bits:
+        description: 'Space separated matrix bits (i686 x86_64 x86_64_v3 aarch64)'
+        required: false
+        default: 'x86_64 aarch64'
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      matrix_verify: ${{ steps.m.outputs.matrix_verify }}
+    steps:
+      - id: m
+        name: Expand bits
+        env:
+          INPUT_BITS: ${{ github.event.inputs.bits }}
+        run: |
+          bits="${INPUT_BITS:-x86_64}"
+          json=$(printf '%s\n' $bits | sed 's/.*/"&"/' | paste -sd, -)
+          echo "matrix={\"bit\":[$json]}" >> "$GITHUB_OUTPUT"
+          # aarch64 二进制无法在 x64 runner 上执行，只做静态核验
+          vbits=$(printf '%s\n' $bits | grep -v '^aarch64$' | sed 's/.*/"&"/' | paste -sd, -)
+          if [ -n "$vbits" ]; then
+            echo "matrix_verify={\"bit\":[$vbits]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix_verify={\"bit\":[\"none\"]}" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.bit }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    container:
+      image: docker://ghcr.io/shinchiro/archlinux:latest
+    env:
+      BIT: ${{ matrix.bit }}
+    steps:
+      - name: Init variables
+        run: |
+          case "$BIT" in
+            i686)      echo "arch=i686" >> $GITHUB_ENV ;;
+            x86_64)    echo "arch=x86_64" >> $GITHUB_ENV ;;
+            x86_64_v3) echo "arch=x86_64" >> $GITHUB_ENV
+                       echo "x86_64_level=-v3" >> $GITHUB_ENV
+                       echo "x86_64_v3_ARCH=-DGCC_ARCH=x86-64-v3" >> $GITHUB_ENV ;;
+            aarch64)   echo "arch=aarch64" >> $GITHUB_ENV ;;
+          esac
+
+      - name: Setup git config
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global pull.rebase true
+          git config --global fetch.prune true
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Configure CMake
+        run: |
+          cmake -DTARGET_ARCH=${{ env.arch }}-w64-mingw32 \
+                -DCOMPILER_TOOLCHAIN=clang \
+                ${{ env.x86_64_v3_ARCH }} \
+                -DCMAKE_INSTALL_PREFIX="$PWD/clang_root" \
+                -DMINGW_INSTALL_PREFIX="$PWD/build_$BIT/$BIT-w64-mingw32" \
+                -DSINGLE_SOURCE_LOCATION="$PWD/src_packages" \
+                -DRUSTUP_LOCATION="$PWD/clang_root/install_rustup" \
+                -DENABLE_CCACHE=ON \
+                -DCLANG_PACKAGES_LTO=ON \
+                -G Ninja --fresh -B build_$BIT -S "$PWD"
+          ninja -C build_$BIT download || true
+
+      - name: Build cross toolchain (clang + mingw-w64 sysroot)
+        run: |
+          ninja -C build_$BIT llvm-clang
+
+      - name: Build mpv (audio-lite, LGPL)
+        run: |
+          ninja -C build_$BIT mpv
+
+      - name: Collect ffmpeg configure evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          for cfg in $(find build_$BIT -type f -name config.mak 2>/dev/null); do
+            echo "== $cfg" >> evidence/ffmpeg-config.txt
+            grep -E '^CONFIG_[A-Z0-9_]+_FILTER=yes' "$cfg" | sort >> evidence/ffmpeg-config.txt || true
+            grep -E '^CONFIG_(GPL|NONFREE|VERSION3)=' "$cfg" >> evidence/ffmpeg-config.txt || true
+          done
+          cat evidence/ffmpeg-config.txt || true
+
+      - name: Package artifacts and provenance
+        run: |
+          set -eu
+          mkdir -p out evidence
+          DEV_DIR=$(find build_$BIT -maxdepth 1 -type d -name "mpv-dev-*" | head -1)
+          PKG_DIR=$(find build_$BIT -maxdepth 1 -type d -name "mpv-${{ env.arch }}*" | head -1)
+          echo "DEV_DIR=$DEV_DIR"; echo "PKG_DIR=$PKG_DIR"
+          mkdir -p out/libmpv
+          cp -v "$DEV_DIR"/libmpv-2.dll out/libmpv/
+          cp -v "$DEV_DIR"/libmpv.dll.a out/libmpv/ 2>/dev/null || true
+          cp -rv "$DEV_DIR"/include out/libmpv/ 2>/dev/null || true
+          if [ -n "$PKG_DIR" ] && [ -f "$PKG_DIR/mpv.exe" ]; then
+            cp -v "$PKG_DIR/mpv.exe" out/libmpv/
+          fi
+          MPV_SRC=$(find build_$BIT -maxdepth 4 -type d -path '*/mpv-prefix/src/mpv' | head -1)
+          FFMPEG_SRC=$(find build_$BIT -maxdepth 4 -type d -path '*/ffmpeg-prefix/src/ffmpeg' | head -1)
+          LLVM_SRC=$(find build_$BIT -maxdepth 4 -type d -path '*/llvm-prefix/src/llvm' | head -1)
+          {
+            echo "platform: windows (${{ matrix.bit }})"
+            echo "build repo: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY @ $GITHUB_SHA"
+            echo "workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "mpv:    $(git -C "$MPV_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "ffmpeg: $(git -C "$FFMPEG_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "llvm:   $(git -C "$LLVM_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "toolchain: clang + mingw-w64 sysroot built from this repository"
+            echo "license mode: LGPL (ffmpeg --disable-gpl --disable-nonfree --enable-version3; mpv -Dgpl=false)"
+            echo
+            echo "--- packages/ffmpeg.cmake audio-lite filters ---"
+            sed -n '/audio-lite additions/,/^$/p' packages/ffmpeg.cmake
+          } > out/PROVENANCE.txt
+          cat out/PROVENANCE.txt
+          ( cd out && sha256sum libmpv/* > SHA256SUMS.txt && ls -l libmpv/ >> SHA256SUMS.txt && cat SHA256SUMS.txt )
+          7z a -m0=lzma2 -mx=9 "libmpv-audio-lite-windows-${{ matrix.bit }}.7z" ./out/* >/dev/null
+
+      - name: Static verification (PE machine type)
+        if: always()
+        run: |
+          DLL=$(find out -name libmpv-2.dll | head -1)
+          if [ -n "$DLL" ]; then
+            { echo "== llvm-readobj --file-headers $DLL"; \
+              clang_root/bin/llvm-readobj --file-headers "$DLL" | grep -Ei 'Format|Arch|Machine|ImageBase|Subsystem'; } \
+              | tee evidence/pe-headers.txt || true
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-audio-lite-windows-${{ matrix.bit }}
+          path: |
+            libmpv-audio-lite-windows-${{ matrix.bit }}.7z
+            out/SHA256SUMS.txt
+            out/PROVENANCE.txt
+            evidence/ffmpeg-config.txt
+            evidence/pe-headers.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p build_${BIT}_logs
+          cp -fr $(find build_$BIT -type f -iname "*-*.log" -o -wholename "*/ffbuild/config.log") build_${BIT}_logs 2>/dev/null || true
+          7z a -m0=lzma2 -mx=9 logs.7z build*_logs >/dev/null || true
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: libmpv-audio-lite-windows-${{ matrix.bit }}-logs
+          path: logs.7z
+          retention-days: 7
+
+  verify:
+    name: Verify ${{ matrix.bit }} on Windows
+    needs: [prepare, build]
+    if: ${{ !cancelled() }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix_verify) }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libmpv-audio-lite-windows-${{ matrix.bit }}
+          path: dl
+
+      - name: Extract
+        shell: pwsh
+        run: |
+          7z x -y "dl\libmpv-audio-lite-windows-${{ matrix.bit }}.7z" -overify-out | Out-Null
+          Get-ChildItem -Recurse verify-out | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: mpv --version and --list-filters
+        shell: pwsh
+        run: |
+          $mpv = (Get-ChildItem -Recurse verify-out -Filter mpv.exe | Select-Object -First 1).FullName
+          "== mpv --version ==" | Set-Content version.txt
+          & $mpv --version 2>&1 | Add-Content version.txt
+          "" | Add-Content version.txt
+          "== mpv --list-filters (mpv's own filters) ==" | Add-Content version.txt
+          & $mpv --list-filters 2>&1 | Add-Content version.txt
+          Get-Content version.txt
+
+      - name: Prove each FFmpeg audio filter exists at runtime
+        shell: pwsh
+        run: |
+          $mpv = (Get-ChildItem -Recurse verify-out -Filter mpv.exe | Select-Object -First 1).FullName
+
+          # 2 秒 440Hz 16bit PCM WAV，供 lavfi 滤镜链读取
+          $rate = 44100; $secs = 2; $n = $rate * $secs
+          $fs = [System.IO.File]::Create("$PWD\tone.wav")
+          $bw = New-Object System.IO.BinaryWriter($fs)
+          $dataLen = $n * 2
+          $bw.Write([System.Text.Encoding]::ASCII.GetBytes("RIFF")); $bw.Write([int](36 + $dataLen))
+          $bw.Write([System.Text.Encoding]::ASCII.GetBytes("WAVEfmt ")); $bw.Write([int]16)
+          $bw.Write([int16]1); $bw.Write([int16]1); $bw.Write([int]$rate)
+          $bw.Write([int]($rate * 2)); $bw.Write([int16]2); $bw.Write([int16]16)
+          $bw.Write([System.Text.Encoding]::ASCII.GetBytes("data")); $bw.Write([int]$dataLen)
+          for ($i = 0; $i -lt $n; $i++) { $bw.Write([int16](12000 * [math]::Sin(2 * [math]::PI * 440 * $i / $rate))) }
+          $bw.Close()
+
+          $filters = @(
+            'volume','alimiter','afade','aresample','dynaudnorm','loudnorm','speechnorm',
+            'acrossfade','acompressor','agate','atempo','bass','treble','highpass','lowpass',
+            'superequalizer','pan','channelmap','ebur128','astats','silencedetect','silenceremove',
+            'amix','amerge','asplit','concat','join','aformat','asetnsamples','apad','atrim',
+            'equalizer','overlay'
+          )
+          $required = @('volume','alimiter','afade','aresample','dynaudnorm')
+
+          $report = @()
+          foreach ($f in $filters) {
+            $out = (& $mpv --no-config --no-video --ao=null --length=0.2 "--af=lavfi=[$f]" "$PWD\tone.wav" 2>&1) -join "`n"
+            $code = $LASTEXITCODE
+            $exists = -not ($out -match 'No such filter|Couldn.t find a filter|unrecognized|Unable to find')
+            $report += [pscustomobject]@{ filter = $f; exit = $code; exists = $exists; required = ($required -contains $f) }
+          }
+          $report | Format-Table -AutoSize | Tee-Object -FilePath filters-report.txt
+          $report | ConvertTo-Json | Set-Content filters-report.json
+
+          $missing = $report | Where-Object { -not $_.exists }
+          if ($missing) { Write-Error ("missing filters: " + (($missing | ForEach-Object { $_.filter }) -join ', ')) }
+
+          # 组合链必须整体成功：均衡 + 淡入淡出 + 限幅 + 重采样 + 音量均衡
+          $chain = 'volume=0.8,dynaudnorm,equalizer=f=1000:t=q:w=1:g=3,afade=t=in:d=0.1,alimiter,aresample=48000'
+          $out = (& $mpv --no-config --no-video --ao=null --length=0.5 "--af=lavfi=[$chain]" "$PWD\tone.wav" 2>&1) -join "`n"
+          $code = $LASTEXITCODE
+          "== combined chain ==" | Set-Content chain-report.txt
+          "af=lavfi=[$chain]" | Add-Content chain-report.txt
+          "exit=$code" | Add-Content chain-report.txt
+          $out | Add-Content chain-report.txt
+          Get-Content chain-report.txt
+          if ($code -ne 0) { Write-Error "combined lavfi chain failed with exit $code" }
+
+      - name: SHA-256 and sizes
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse verify-out -Include *.dll, *.exe
+          foreach ($f in $files) {
+            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            "{0}  {1}  {2} bytes" -f $h, $f.Name, $f.Length | Tee-Object -FilePath sha256.txt -Append
+          }
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-audio-lite-windows-${{ matrix.bit }}-evidence
+          path: |
+            version.txt
+            filters-report.txt
+            filters-report.json
+            chain-report.txt
+            sha256.txt
+          retention-days: 30
