@@ -1,0 +1,49 @@
+name: probe-env
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: Probe build container
+    runs-on: ubuntu-latest
+    container:
+      image: docker://ghcr.io/shinchiro/archlinux:latest
+    steps:
+      - name: System info
+        run: |
+          cat /etc/os-release || true
+          echo "--- nproc/mem/disk"
+          nproc
+          free -h || true
+          df -h / | tail -n 2
+      - name: Toolchain inventory
+        run: |
+          echo "--- which"
+          for t in clang clang++ lld ld.lld x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang i686-w64-mingw32-gcc aarch64-w64-mingw32-gcc ninja meson cmake 7z ccache git python; do
+            printf '%-32s %s\n' "$t" "$(command -v $t || echo MISSING)"
+          done
+          echo "--- versions"
+          cmake --version | head -1 || true
+          meson --version || true
+          ninja --version || true
+          clang --version 2>/dev/null | head -2 || true
+      - name: Pacman packages of interest
+        run: |
+          pacman -Qq 2>/dev/null | grep -iE 'mingw|clang|llvm|gcc|rust|cmake|ninja|meson|7zip|ccache' || true
+      - name: Mingw sysroots present?
+        run: |
+          ls -d /usr/*mingw* 2>/dev/null || true
+          du -sh /usr/x86_64-w64-mingw32 2>/dev/null || true
+          ls /usr/x86_64-w64-mingw32/lib 2>/dev/null | head -20 || true
+      - name: Can pacman reach mingw repo
+        run: |
+          pacman -Ss 'mingw-w64-clang' 2>/dev/null | head -10 || echo "no such package"
+          pacman -Ss 'mingw-w64-gcc' 2>/dev/null | head -6 || echo "no gcc package"
+      - name: Action cache scope sanity
+        run: |
+          echo "repo=$GITHUB_REPOSITORY ref=$GITHUB_REF run=$GITHUB_RUN_ID"
