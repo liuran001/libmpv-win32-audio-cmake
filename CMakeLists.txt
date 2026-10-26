@@ -21,7 +21,10 @@ execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE HOST_AR
 string(REGEX MATCH "^[^-]+" HOST_CPU ${HOST_ARCH})
 
 execute_process(COMMAND meson --version OUTPUT_VARIABLE MESON_VERSION)
-if(NOT MESON_VERSION GREATER_EQUAL 1.3)
+string(STRIP "${MESON_VERSION}" MESON_VERSION)
+# 逐段数值比较。原来的 GREATER_EQUAL 是字符串比较，容器里的 meson 1.10+
+# （例如 "1.12.1" 在字典序上小于 "1.3"）会被误判成版本过低。
+if(MESON_VERSION VERSION_LESS 1.3)
     message(FATAL_ERROR "Meson 1.3.0 or greater is required. Install it with pip instead.")
 endif()
 

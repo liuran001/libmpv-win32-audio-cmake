@@ -77,6 +77,14 @@ jobs:
           git config --global fetch.prune true
           git config --global --add safe.directory '*'
 
+      - name: Tool versions
+        run: |
+          cmake --version | head -1
+          meson --version
+          ninja --version
+          clang --version | head -2
+          nproc
+
       - uses: actions/checkout@v4
         with:
           ref: master
@@ -151,11 +159,14 @@ jobs:
       - name: Static verification (PE machine type)
         if: always()
         run: |
-          DLL=$(find out -name libmpv-2.dll | head -1)
-          if [ -n "$DLL" ]; then
+          mkdir -p evidence
+          DLL=$(find out -name libmpv-2.dll 2>/dev/null | head -1 || true)
+          if [ -n "${DLL:-}" ]; then
             { echo "== llvm-readobj --file-headers $DLL"; \
               clang_root/bin/llvm-readobj --file-headers "$DLL" | grep -Ei 'Format|Arch|Machine|ImageBase|Subsystem'; } \
               | tee evidence/pe-headers.txt || true
+          else
+            echo "libmpv-2.dll not produced" | tee evidence/pe-headers.txt
           fi
 
       - name: Upload artifact
