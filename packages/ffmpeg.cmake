@@ -5,13 +5,11 @@ ExternalProject_Add(ffmpeg
         lcms2
         openssl
         libssh
-        libass
         libmodplug
         libpng
         libsoxr
         libwebp
         libmysofa
-        harfbuzz
         opus
         speex
         vorbis
