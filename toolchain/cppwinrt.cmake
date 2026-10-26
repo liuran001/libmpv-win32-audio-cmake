@@ -10,7 +10,10 @@ ExternalProject_Add(cppwinrt
         -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
     BUILD_COMMAND ${EXEC} ninja -C <BINARY_DIR>
     INSTALL_COMMAND ${EXEC} ninja -C <BINARY_DIR> install
-            COMMAND ${EXEC} wget -O <BINARY_DIR>/Windows.winmd  https://github.com/microsoft/windows-rs/raw/master/crates/libs/bindgen/default/Windows.winmd
+            # microsoft/windows-rs 把 winmd 从 crates/libs/bindgen/default/ 移到了
+            # crates/libs/default/，旧路径现在返回 404，wget 直接失败。这里固定到
+            # 一个具体提交，避免 master 再变。
+            COMMAND ${EXEC} wget -O <BINARY_DIR>/Windows.winmd https://raw.githubusercontent.com/microsoft/windows-rs/f8fec5cbb08bb33ca5a257faa05db30eb975e40b/crates/libs/default/Windows.winmd
             COMMAND ${EXEC} cppwinrt -input <BINARY_DIR>/Windows.winmd -output ${MINGW_INSTALL_PREFIX}/include/
     LOG_DOWNLOAD 1 LOG_UPDATE 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
 )
