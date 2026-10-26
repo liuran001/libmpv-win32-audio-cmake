@@ -105,6 +105,9 @@ jobs:
 
       - name: Build cross toolchain (clang + mingw-w64 sysroot)
         run: |
+          # llvm 必须先装好：mingw-w64-crt 只依赖 llvm-wrapper，不依赖 llvm，
+          # 直接跑 llvm-clang 会让 crt 的 configure 找不到 clang 二进制。
+          ninja -C build_$BIT llvm
           ninja -C build_$BIT llvm-clang
 
       - name: Build mpv (audio-lite, LGPL)
