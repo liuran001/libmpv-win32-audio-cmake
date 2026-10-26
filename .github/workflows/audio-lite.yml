@@ -89,6 +89,26 @@ jobs:
         with:
           ref: master
 
+      - name: Restore clang sysroot cache
+        id: cache_clang
+        uses: actions/cache/restore@v4
+        with:
+          path: clang_root
+          key: v1-clang_root-${{ matrix.bit }}-${{ github.run_id }}
+          restore-keys: |
+            v1-clang_root-${{ matrix.bit }}-
+
+      - name: Restore toolchain build dir cache
+        id: cache_build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build_${{ matrix.bit }}
+            src_packages
+          key: v1-toolchain-${{ matrix.bit }}-${{ github.run_id }}
+          restore-keys: |
+            v1-toolchain-${{ matrix.bit }}-
+
       - name: Configure CMake
         run: |
           cmake -DTARGET_ARCH=${{ env.arch }}-w64-mingw32 \
@@ -100,15 +120,32 @@ jobs:
                 -DRUSTUP_LOCATION="$PWD/clang_root/install_rustup" \
                 -DENABLE_CCACHE=ON \
                 -DCLANG_PACKAGES_LTO=ON \
-                -G Ninja --fresh -B build_$BIT -S "$PWD"
+                -G Ninja -B build_$BIT -S "$PWD"
           ninja -C build_$BIT download || true
 
       - name: Build cross toolchain (clang + mingw-w64 sysroot)
+        if: ${{ steps.cache_clang.outputs.cache-matched-key == '' || steps.cache_build.outputs.cache-matched-key == '' }}
         run: |
           # llvm 必须先装好：mingw-w64-crt 只依赖 llvm-wrapper，不依赖 llvm，
           # 直接跑 llvm-clang 会让 crt 的 configure 找不到 clang 二进制。
           ninja -C build_$BIT llvm
           ninja -C build_$BIT llvm-clang
+
+      - name: Save toolchain caches
+        if: ${{ always() && (steps.cache_clang.outputs.cache-matched-key == '' || steps.cache_build.outputs.cache-matched-key == '') }}
+        uses: actions/cache/save@v4
+        with:
+          path: clang_root
+          key: v1-clang_root-${{ matrix.bit }}-${{ github.run_id }}
+
+      - name: Save toolchain build dir cache
+        if: ${{ always() && (steps.cache_clang.outputs.cache-matched-key == '' || steps.cache_build.outputs.cache-matched-key == '') }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build_${{ matrix.bit }}
+            src_packages
+          key: v1-toolchain-${{ matrix.bit }}-${{ github.run_id }}
 
       - name: Dump toolchain logs on failure
         if: failure()
