@@ -10,7 +10,6 @@ ExternalProject_Add(ffmpeg
         libpng
         libsoxr
         libwebp
-        libzimg
         libmysofa
         harfbuzz
         opus
