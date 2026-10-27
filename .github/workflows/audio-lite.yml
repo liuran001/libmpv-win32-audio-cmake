@@ -311,10 +311,37 @@ jobs:
         run: |
           $mpv = (Get-ChildItem -Recurse verify-out -Filter mpv.exe | Select-Object -First 1).FullName
 
-          # 2 秒 440Hz 16bit PCM WAV，供 lavfi 滤镜链读取
+          # mpv 的 --af=help 会列出 "Available libavfilter filters:"，等价于 --list-filters
+          $help = (& $mpv --af=help 2>&1) -join "`n"
+          $section = ($help -split 'Available libavfilter filters:')[-1]
+          $section = ($section -split 'If libavfilter filters clash') [0]
+          $present = @{}
+          foreach ($line in ($section -split "`r?`n")) {
+            if ($line -match '^\s+(\S+)\s') { $present[$matches[1]] = $true }
+          }
+          "== mpv --af=help / Available libavfilter filters ==" | Set-Content filters-report.txt
+          $section.Trim() | Add-Content filters-report.txt
+          "" | Add-Content filters-report.txt
+
+          $filters = @(
+            'volume','alimiter','afade','aresample','dynaudnorm','loudnorm','speechnorm',
+            'acrossfade','acompressor','agate','atempo','bass','treble','highpass','lowpass',
+            'superequalizer','pan','channelmap','ebur128','astats','silencedetect','silenceremove',
+            'amix','amerge','asplit','concat','join','aformat','asetnsamples','apad','atrim',
+            'equalizer','overlay'
+          )
+          $report = foreach ($f in $filters) {
+            [pscustomobject]@{ filter = $f; exists = [bool]$present.ContainsKey($f) }
+          }
+          $report | Format-Table -AutoSize | Add-Content filters-report.txt
+          $report | ConvertTo-Json | Set-Content filters-report.json
+          Get-Content filters-report.txt
+          $missing = $report | Where-Object { -not $_.exists }
+          if ($missing) { Write-Error ("missing filters: " + (($missing | ForEach-Object { $_.filter }) -join ', ')) }
+
+          # 组合链跑一遍，确认真能建链出声（--ao=null，不碰音频设备）
           $rate = 44100; $secs = 2; $n = $rate * $secs
-          $fs = [System.IO.File]::Create("$PWD\tone.wav")
-          $bw = New-Object System.IO.BinaryWriter($fs)
+          $bw = New-Object System.IO.BinaryWriter([System.IO.File]::Create("$PWD\tone.wav"))
           $dataLen = $n * 2
           $bw.Write([System.Text.Encoding]::ASCII.GetBytes("RIFF")); $bw.Write([int](36 + $dataLen))
           $bw.Write([System.Text.Encoding]::ASCII.GetBytes("WAVEfmt ")); $bw.Write([int]16)
@@ -324,39 +351,17 @@ jobs:
           for ($i = 0; $i -lt $n; $i++) { $bw.Write([int16](12000 * [math]::Sin(2 * [math]::PI * 440 * $i / $rate))) }
           $bw.Close()
 
-          $filters = @(
-            'volume','alimiter','afade','aresample','dynaudnorm','loudnorm','speechnorm',
-            'acrossfade','acompressor','agate','atempo','bass','treble','highpass','lowpass',
-            'superequalizer','pan','channelmap','ebur128','astats','silencedetect','silenceremove',
-            'amix','amerge','asplit','concat','join','aformat','asetnsamples','apad','atrim',
-            'equalizer','overlay'
-          )
-          $required = @('volume','alimiter','afade','aresample','dynaudnorm')
-
-          $report = @()
-          foreach ($f in $filters) {
-            $out = (& $mpv --no-config --no-video --ao=null --length=0.2 "--af=lavfi=[$f]" "$PWD\tone.wav" 2>&1) -join "`n"
-            $code = $LASTEXITCODE
-            $exists = -not ($out -match 'No such filter|Couldn.t find a filter|unrecognized|Unable to find')
-            $report += [pscustomobject]@{ filter = $f; exit = $code; exists = $exists; required = ($required -contains $f) }
-          }
-          $report | Format-Table -AutoSize | Tee-Object -FilePath filters-report.txt
-          $report | ConvertTo-Json | Set-Content filters-report.json
-
-          $missing = $report | Where-Object { -not $_.exists }
-          if ($missing) { Write-Error ("missing filters: " + (($missing | ForEach-Object { $_.filter }) -join ', ')) }
-
-          # 组合链必须整体成功：均衡 + 淡入淡出 + 限幅 + 重采样 + 音量均衡
           $chain = 'volume=0.8,dynaudnorm,equalizer=f=1000:t=q:w=1:g=3,afade=t=in:d=0.1,alimiter,aresample=48000'
-          $out = (& $mpv --no-config --no-video --ao=null --length=0.5 "--af=lavfi=[$chain]" "$PWD\tone.wav" 2>&1) -join "`n"
-          $code = $LASTEXITCODE
+          $p = Start-Process -FilePath $mpv -Wait -PassThru -NoNewWindow `
+                 -ArgumentList @('--no-config','--no-video','--ao=null','--length=0.5',"--af=lavfi=[$chain]","$PWD\tone.wav") `
+                 -RedirectStandardOutput "$PWD\chain-stdout.txt" -RedirectStandardError "$PWD\chain-stderr.txt"
           "== combined chain ==" | Set-Content chain-report.txt
           "af=lavfi=[$chain]" | Add-Content chain-report.txt
-          "exit=$code" | Add-Content chain-report.txt
-          $out | Add-Content chain-report.txt
+          "exit=$($p.ExitCode)" | Add-Content chain-report.txt
+          Get-Content "$PWD\chain-stderr.txt" -ErrorAction SilentlyContinue | Add-Content chain-report.txt
           Get-Content chain-report.txt
-          if ($code -ne 0) { Write-Error "combined lavfi chain failed with exit $code" }
-
+          if ($p.ExitCode -ne 0) { Write-Error "combined lavfi chain failed with exit $($p.ExitCode)" }
+          exit 0
       - name: SHA-256 and sizes
         shell: pwsh
         run: |
