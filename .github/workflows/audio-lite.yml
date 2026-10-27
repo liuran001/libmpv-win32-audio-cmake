@@ -215,9 +215,9 @@ jobs:
             echo "platform: windows (${{ matrix.bit }})"
             echo "build repo: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY @ $GITHUB_SHA"
             echo "workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "mpv:    $(git -C "$MPV_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
-            echo "ffmpeg: $(git -C "$FFMPEG_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
-            echo "llvm:   $(git -C "$LLVM_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "mpv:    $([ -n "$MPV_SRC" ] && git -C "$MPV_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "ffmpeg: $([ -n "$FFMPEG_SRC" ] && git -C "$FFMPEG_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+            echo "llvm:   $([ -n "$LLVM_SRC" ] && git -C "$LLVM_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
             echo "toolchain: clang + mingw-w64 sysroot built from this repository"
             echo "license mode: LGPL (ffmpeg --disable-gpl --disable-nonfree --enable-version3; mpv -Dgpl=false)"
             echo
