@@ -19,6 +19,11 @@ on:
         description: 'Run id of the audio-lite build that produced the artifact'
         required: true
         type: string
+      mpv_sha:
+        description: 'Short mpv commit for the media-kit file name (mpv-dev-<arch>-<date>-git-<sha>.7z)'
+        required: false
+        default: '140ec21'
+        type: string
 
 defaults:
   run:
@@ -56,7 +61,7 @@ jobs:
             aarch64) ARCH=aarch64 ;;
             *) echo "unsupported bit"; exit 1 ;;
           esac
-          SHA=$(grep -m1 '^mpv:' dl/out/PROVENANCE.txt | awk '{print $2}' | cut -c1-7)
+          SHA=${{ inputs.mpv_sha }}
           DATE=$(date -u +%Y%m%d)
           NAME="mpv-dev-${ARCH}-${DATE}-git-${SHA}"
           # 上游 mpv-packaging 用 `7z a $dir.7z $dir/*`，归档根目录直接是
