@@ -290,16 +290,21 @@ jobs:
           7z x -y "dl\libmpv-audio-lite-windows-${{ matrix.bit }}.7z" -overify-out | Out-Null
           Get-ChildItem -Recurse verify-out | Select-Object FullName, Length | Format-Table -AutoSize
 
-      - name: mpv --version and --list-filters
+      - name: mpv --version and --af=help
         shell: pwsh
         run: |
           $mpv = (Get-ChildItem -Recurse verify-out -Filter mpv.exe | Select-Object -First 1).FullName
           "== mpv --version ==" | Set-Content version.txt
           & $mpv --version 2>&1 | Add-Content version.txt
           "" | Add-Content version.txt
-          "== mpv --list-filters (mpv's own filters) ==" | Add-Content version.txt
-          & $mpv --list-filters 2>&1 | Add-Content version.txt
+          # mpv 0.35 没有 --list-filters；音频滤镜清单用 --af=help
+          "== mpv --af=help ==" | Add-Content version.txt
+          & $mpv --af=help 2>&1 | Add-Content version.txt
+          "" | Add-Content version.txt
+          "== mpv --vf=help (head) ==" | Add-Content version.txt
+          & $mpv --vf=help 2>&1 | Select-Object -First 30 | Add-Content version.txt
           Get-Content version.txt
+          exit 0
 
       - name: Prove each FFmpeg audio filter exists at runtime
         shell: pwsh
