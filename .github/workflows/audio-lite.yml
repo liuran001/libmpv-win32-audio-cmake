@@ -314,7 +314,7 @@ jobs:
           # mpv 的 --af=help 会列出 "Available libavfilter filters:"，等价于 --list-filters
           $help = (& $mpv --af=help 2>&1) -join "`n"
           $section = ($help -split 'Available libavfilter filters:')[-1]
-          $section = ($section -split 'If libavfilter filters clash') [0]
+          $section = ($section -split 'If libavfilter filters clash')[0]
           $present = @{}
           foreach ($line in ($section -split "`r?`n")) {
             if ($line -match '^\s+(\S+)\s') { $present[$matches[1]] = $true }
