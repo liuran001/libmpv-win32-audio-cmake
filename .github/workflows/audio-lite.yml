@@ -171,11 +171,27 @@ jobs:
         if: always()
         run: |
           mkdir -p evidence
-          for cfg in $(find build_$BIT -type f -name config.mak 2>/dev/null); do
-            echo "== $cfg" >> evidence/ffmpeg-config.txt
-            grep -E '^CONFIG_[A-Z0-9_]+_FILTER=yes' "$cfg" | sort >> evidence/ffmpeg-config.txt || true
-            grep -E '^CONFIG_(GPL|NONFREE|VERSION3)=' "$cfg" >> evidence/ffmpeg-config.txt || true
+          : > evidence/ffmpeg-config.txt
+          # ffmpeg 的 build 目录在 install 之后被 postremovebuild 删掉了，config.mak 不在了；
+          # configure 的摘要留在 stamp 目录的 ffmpeg-configure-out.log 里。
+          for log in $(find build_$BIT/packages -type f -name 'ffmpeg-configure-out.log' 2>/dev/null); do
+            echo "===== $log =====" >> evidence/ffmpeg-config.txt
+            grep -A 60 'Enabled filters' "$log" >> evidence/ffmpeg-config.txt || true
           done
+          DEV=$(find build_$BIT -maxdepth 1 -type d -name 'mpv-dev-*' | head -1 || true)
+          if [ -n "${DEV:-}" ] && [ -f "$DEV/libmpv-2.dll" ]; then
+            echo "===== filter name strings in libmpv-2.dll =====" >> evidence/ffmpeg-config.txt
+            for n in volume alimiter afade aresample dynaudnorm loudnorm speechnorm acrossfade \
+                     acompressor agate atempo bass treble highpass lowpass superequalizer pan \
+                     channelmap ebur128 astats silencedetect silenceremove amix amerge asplit \
+                     concat join aformat asetnsamples apad atrim equalizer overlay; do
+              if LC_ALL=C grep -aq -- "$n" "$DEV/libmpv-2.dll"; then
+                echo "  $n present" >> evidence/ffmpeg-config.txt
+              else
+                echo "  $n MISSING" >> evidence/ffmpeg-config.txt
+              fi
+            done
+          fi
           cat evidence/ffmpeg-config.txt || true
 
       - name: Package artifacts and provenance
@@ -209,7 +225,7 @@ jobs:
             sed -n '/audio-lite additions/,/^$/p' packages/ffmpeg.cmake
           } > out/PROVENANCE.txt
           cat out/PROVENANCE.txt
-          ( cd out && sha256sum libmpv/* > SHA256SUMS.txt && ls -l libmpv/ >> SHA256SUMS.txt && cat SHA256SUMS.txt )
+          ( cd out && find libmpv -maxdepth 1 -type f -exec sha256sum {} + > SHA256SUMS.txt && ls -l libmpv/ >> SHA256SUMS.txt && cat SHA256SUMS.txt )
           7z a -m0=lzma2 -mx=9 "libmpv-audio-lite-windows-${{ matrix.bit }}.7z" ./out/* >/dev/null
 
       - name: Static verification (PE machine type)
