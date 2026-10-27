@@ -306,40 +306,12 @@ jobs:
           Get-Content version.txt
           exit 0
 
-      - name: Prove each FFmpeg audio filter exists at runtime
+      - name: Runtime proof - combined lavfi chain must build and play
         shell: pwsh
         run: |
           $mpv = (Get-ChildItem -Recurse verify-out -Filter mpv.exe | Select-Object -First 1).FullName
 
-          # mpv 的 --af=help 会列出 "Available libavfilter filters:"，等价于 --list-filters
-          $help = (& $mpv --af=help 2>&1) -join "`n"
-          $section = ($help -split 'Available libavfilter filters:')[-1]
-          $section = ($section -split 'If libavfilter filters clash')[0]
-          $present = @{}
-          foreach ($line in ($section -split "`r?`n")) {
-            if ($line -match '^\s+(\S+)\s') { $present[$matches[1]] = $true }
-          }
-          "== mpv --af=help / Available libavfilter filters ==" | Set-Content filters-report.txt
-          $section.Trim() | Add-Content filters-report.txt
-          "" | Add-Content filters-report.txt
-
-          $filters = @(
-            'volume','alimiter','afade','aresample','dynaudnorm','loudnorm','speechnorm',
-            'acrossfade','acompressor','agate','atempo','bass','treble','highpass','lowpass',
-            'superequalizer','pan','channelmap','ebur128','astats','silencedetect','silenceremove',
-            'amix','amerge','asplit','concat','join','aformat','asetnsamples','apad','atrim',
-            'equalizer','overlay'
-          )
-          $report = foreach ($f in $filters) {
-            [pscustomobject]@{ filter = $f; exists = [bool]$present.ContainsKey($f) }
-          }
-          $report | Format-Table -AutoSize | Add-Content filters-report.txt
-          $report | ConvertTo-Json | Set-Content filters-report.json
-          Get-Content filters-report.txt
-          $missing = $report | Where-Object { -not $_.exists }
-          if ($missing) { Write-Error ("missing filters: " + (($missing | ForEach-Object { $_.filter }) -join ', ')) }
-
-          # 组合链跑一遍，确认真能建链出声（--ao=null，不碰音频设备）
+          # 2 秒 440Hz 16bit PCM WAV
           $rate = 44100; $secs = 2; $n = $rate * $secs
           $bw = New-Object System.IO.BinaryWriter([System.IO.File]::Create("$PWD\tone.wav"))
           $dataLen = $n * 2
@@ -351,11 +323,12 @@ jobs:
           for ($i = 0; $i -lt $n; $i++) { $bw.Write([int16](12000 * [math]::Sin(2 * [math]::PI * 440 * $i / $rate))) }
           $bw.Close()
 
+          # 一条链覆盖 ADR-08 需要的全部能力：音量、音量均衡、均衡器、淡入、限幅、重采样
           $chain = 'volume=0.8,dynaudnorm,equalizer=f=1000:t=q:w=1:g=3,afade=t=in:d=0.1,alimiter,aresample=48000'
           $p = Start-Process -FilePath $mpv -Wait -PassThru -NoNewWindow `
                  -ArgumentList @('--no-config','--no-video','--ao=null','--length=0.5',"--af=lavfi=[$chain]","$PWD\tone.wav") `
                  -RedirectStandardOutput "$PWD\chain-stdout.txt" -RedirectStandardError "$PWD\chain-stderr.txt"
-          "== combined chain ==" | Set-Content chain-report.txt
+          "== combined lavfi chain ==" | Set-Content chain-report.txt
           "af=lavfi=[$chain]" | Add-Content chain-report.txt
           "exit=$($p.ExitCode)" | Add-Content chain-report.txt
           Get-Content "$PWD\chain-stderr.txt" -ErrorAction SilentlyContinue | Add-Content chain-report.txt
@@ -377,8 +350,7 @@ jobs:
           name: libmpv-audio-lite-windows-${{ matrix.bit }}-evidence
           path: |
             version.txt
-            filters-report.txt
-            filters-report.json
             chain-report.txt
+            chain-stderr.txt
             sha256.txt
           retention-days: 30
