@@ -67,11 +67,15 @@ jobs:
           # 上游 mpv-packaging 用 `7z a $dir.7z $dir/*`，归档根目录直接是
           # libmpv-2.dll / libmpv.dll.a / include/mpv/*.h，没有外层目录。
           mkdir -p stage
-          cp x/out/libmpv/libmpv-2.dll stage/
-          cp x/out/libmpv/libmpv.dll.a stage/ 2>/dev/null || true
-          if [ -d x/out/libmpv/include/mpv ]; then
+          DLL=$(find x -name libmpv-2.dll -type f | head -1)
+          [ -n "$DLL" ] || { echo "libmpv-2.dll not found in extracted archive"; find x -type f | head -20; exit 1; }
+          LIBDIR=$(dirname "$DLL")
+          echo "LIBDIR=$LIBDIR"
+          cp "$DLL" stage/
+          cp "$LIBDIR/libmpv.dll.a" stage/ 2>/dev/null || true
+          if [ -d "$LIBDIR/include/mpv" ]; then
             mkdir -p stage/include
-            cp -r x/out/libmpv/include/mpv stage/include/
+            cp -r "$LIBDIR/include/mpv" stage/include/
           fi
           ls -lR stage
           ( cd stage && 7z a -m0=lzma2 -mx=9 -ms=on "../${NAME}.7z" ./* >/dev/null )
