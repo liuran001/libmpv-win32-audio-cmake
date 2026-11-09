@@ -37,7 +37,7 @@ jobs:
           json=$(printf '%s\n' $bits | sed 's/.*/"&"/' | paste -sd, -)
           echo "matrix={\"bit\":[$json]}" >> "$GITHUB_OUTPUT"
           # aarch64 二进制无法在 x64 runner 上执行，只做静态核验
-          vbits=$(printf '%s\n' $bits | grep -v '^aarch64$' | sed 's/.*/"&"/' | paste -sd, -)
+          vbits=$(printf '%s\n' $bits | { grep -v '^aarch64$' || true; } | sed 's/.*/"&"/' | paste -sd, -)
           if [ -n "$vbits" ]; then
             echo "matrix_verify={\"bit\":[$vbits]}" >> "$GITHUB_OUTPUT"
           else
