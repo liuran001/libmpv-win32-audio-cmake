@@ -267,6 +267,10 @@ jobs:
     name: Verify ${{ matrix.bit }}
     needs: [prepare, build]
     if: ${{ !cancelled() }}
+    # verify.yml downloads this run's artifacts, so it needs actions: read.
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix_verify) }}
